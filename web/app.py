@@ -20,7 +20,7 @@ class JsonDocument:
     title: str
     text: str
 
-def load_documents_from_json(file_path: str = "~/search/wikipedia_ru_sample_500k.csv") -> List[JsonDocument]:
+def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_500k.csv") -> List[JsonDocument]:
     """Загрузка документов из JSON файла"""
     try:
         data = pd.read_csv(file_path)

@@ -23,13 +23,10 @@ class RankerL1:
         self.direct_index = direct_index
         self.tokenizer = Tokenizer()
 
-        # начальные веса линейной модели
         self.w_overlap = 1.0
         self.w_tf_sum = 0.2
         self.w_proximity = 2.0
         self.w_len_norm = 0.1
-
-    # ---------- основной публичный метод ----------
 
     def rank(self, query: str, candidates: Set[str], top_k: int = 10) -> List[Tuple[str, float]]:
         """Отранжировать документы по запросу.
@@ -54,8 +51,6 @@ class RankerL1:
             scored = scored[:top_k]
         return scored
 
-    # ---------- внутренние методы ----------
-
     def _extract_query_terms(self, query: str) -> List[str]:
         """Простая токенизация запроса (без булевой логики)."""
         tokens = self.tokenizer.tokenize(query)
@@ -71,8 +66,6 @@ class RankerL1:
             for field_docs in postings_by_field.values():
                 candidates.update(field_docs.keys())
         return candidates
-
-    # ----- признаки -----
 
     def _feature_overlap(self, query_terms: List[str], doc_id: str) -> float:
         terms_in_doc = self.direct_index.get_terms(doc_id)
@@ -127,8 +120,6 @@ class RankerL1:
         avg_dist = sum(dists) / len(dists)
         # преобразуем расстояние в «близость» (меньшее расстояние -> больше значение)
         return 1.0 / (1.0 + avg_dist)
-
-    # ----- скор и (в перспективе) обучение -----
 
     def _score(self, query_terms: List[str], doc_id: str) -> float:
         """Линейная модель: score = w · f."""

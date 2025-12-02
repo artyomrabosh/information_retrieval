@@ -526,7 +526,7 @@ class SearchEngine:
 
         Возвращает список словарей вида {'id': doc_id, 'score': score}.
         """
-        results = [] # здесь вызывать булеан сеарч
+        results = []
         for doc_id, score in self.ranker_l1.rank(query, candidates, top_k=100):
             results.append({'id': doc_id, 'score': score})
         return results

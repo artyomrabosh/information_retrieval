@@ -27,20 +27,16 @@ class DirectIndex:
 
         for field_name, field_text in doc.fields.items():
             self.fields.add(field_name)
-            # tokenizer.tokenize_field возвращает (token, local_pos),
-            # но для расстояний нам нужен общий счетчик позиций
             tokens_with_positions = self.tokenizer.tokenize_field(field_name, field_text)
 
             for token, _ in tokens_with_positions:
                 all_tokens.append((token, current_position))
                 current_position += 1
 
-        # группируем позиции по термам
         term_positions: Dict[str, List[int]] = defaultdict(list)
         for token, pos in all_tokens:
             term_positions[token].append(pos)
 
-        # сжимаем позиции побитовым varbyte + delta-кодированием (как в SimplePositionStorage)
         compressed_terms: Dict[str, bytes] = {}
         for term, positions in term_positions.items():
             compressed_terms[term] = self.pos_storage.compress_positions(positions)
