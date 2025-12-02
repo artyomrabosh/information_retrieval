@@ -1,0 +1,13 @@
+[project]
+name = "search"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "datasets>=4.4.1",
+    "flask==2.3.3",
+    "ir-datasets>=0.5.11",
+    "pandas>=2.3.3",
+    "python-dotenv==1.0.0",
+]
