@@ -29,7 +29,11 @@ class RankerL1:
         self.w_proximity = 2.0
         self.w_len_norm = 0.1
 
-        self.weights = [1.0, 0.2, 2.0, 0.1, 0]
+        self.features = {"overlap": self._feature_overlap, 
+                         "tf_sum": self._feature_tf_sum, 
+                         "prox": self._feature_proximity,
+                         "len_norm": self._feature_log_doc_len}
+        self.weights = [1 for _ in self.features] + [1]
 
     def rank(self, query: str, candidates: Set[str], top_k: int = 10) -> List[Tuple[str, float]]:
         """Отранжировать документы по запросу.
@@ -145,18 +149,15 @@ class RankerL1:
 
     def _score(self, query_terms: List[str], doc_id: str) -> float:
         """Линейная модель: score = w · f."""
-        f_overlap = self._feature_overlap(query_terms, doc_id)
-        f_tf_sum = self._feature_tf_sum(query_terms, doc_id)
-        f_prox = self._feature_proximity(query_terms, doc_id)
-        f_len = self._feature_log_doc_len(query_terms, doc_id)
+        features = []
+        for feature in self.features:
+            features.append(feature(query_terms, doc_id))
         
-        features = [f_overlap, f_tf_sum, f_prox, f_len, 1] # bias в конце
+        features.append(1) # bias в конце
         return sum(w_i * x_i for w_i, x_i in zip(self.weights, features))
     
     def _get_features(self, query_terms: List[str], doc_id: str):
-        f_overlap = self._feature_overlap(query_terms, doc_id)
-        f_tf_sum = self._feature_tf_sum(query_terms, doc_id)
-        f_prox = self._feature_proximity(query_terms, doc_id)
-        f_len = self._feature_log_doc_len(query_terms, doc_id)
-        features = [f_overlap, f_tf_sum, f_prox, f_len]
+        features = []
+        for feature in self.features:
+            features.append(feature(query_terms, doc_id))
         return features
