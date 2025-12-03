@@ -3,20 +3,18 @@ from __future__ import annotations
 from typing import List, Tuple, Set
 from core.tokenizer import Tokenizer
 import math
+from tqdm import tqdm
 
 SERVICE_TOKENS = set(["OR", "AND", "NEAR", "ADJ", "NOT"])
 
 class RankerL1:
     """Простое линейное L1-ранжирование на базе текстовых фич.
 
-    Модель: score(q, d) = w · f(q, d), где f — вектор признаков:
+    Модель: score(q, d) = w · f(q, d) + b, где f — вектор признаков:
       * overlap — число уникальных термов запроса, встречающихся в документе
-      * tf_sum — суммарная частота термов запроса в документе
+      * tf_idf_sum — сумма tf-idf статистик запроса по документу
       * proximity — мера близости термов запроса (на основе расстояний между словами)
       * len_norm — нормированная длина документа
-
-    Веса можно в дальнейшем обучать по qrel'ам, минимизируя L1-ошибку (|y - w·f|),
-    но здесь задана простая инициализация по умолчанию.
     """
 
     def __init__(self, inverted_index, direct_index):
@@ -80,11 +78,9 @@ class RankerL1:
         self.idf_cache = {}
         N = len(self.inverted_index.documents)  # Общее количество документов
         
-        for term in self.inverted_index.doc_index:
+        for term in tqdm(self.inverted_index.doc_index, total=len(self.inverted_index.doc_index), desc="Расчет IDF"):
             df = len(self.inverted_index._get_numeric_doc_ids(term))
             self.idf_cache[term] = math.log((N - df + 0.5) / (df + 0.5) + 1.0)
-        
-        print(self.idf_cache)
 
     def _feature_overlap(self, query_terms: List[str], doc_id: str) -> float:
         terms_in_doc = self.direct_index.get_terms(doc_id)
