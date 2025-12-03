@@ -30,7 +30,7 @@ class RankerL1:
         self.w_len_norm = 0.1
 
         self.features = {"overlap": self._feature_overlap, 
-                         "tf_sum": self._feature_tf_sum, 
+                         "tf_sum": self._feature_tf_idf_sum, 
                          "prox": self._feature_proximity,
                          "len_norm": self._feature_log_doc_len}
         self.weights = [1 for _ in self.features] + [1]
@@ -75,16 +75,16 @@ class RankerL1:
         tokens = self.tokenizer.tokenize(query)
         return [t for t, _ in tokens if t not in SERVICE_TOKENS]
 
-    def _get_candidate_docs(self, query_terms: List[str]) -> Set[str]:
-        """Собрать множество doc_id, которые содержат хотя бы один терм запроса."""
-        candidates: Set[str] = set()
-        for term in query_terms:
-            postings_by_field = self.inverted_index.index.get(term)
-            if not postings_by_field:
-                continue
-            for field_docs in postings_by_field.values():
-                candidates.update(field_docs.keys())
-        return candidates
+    def _compute_idf_cache(self):
+        """Кэширование IDF значений для всех термов в индексе."""
+        self.idf_cache = {}
+        N = len(self.inverted_index.documents)  # Общее количество документов
+        
+        for term in self.inverted_index.doc_index:
+            df = len(self.inverted_index._get_numeric_doc_ids(term))
+            self.idf_cache[term] = math.log((N - df + 0.5) / (df + 0.5) + 1.0)
+        
+        print(self.idf_cache)
 
     def _feature_overlap(self, query_terms: List[str], doc_id: str) -> float:
         terms_in_doc = self.direct_index.get_terms(doc_id)
@@ -93,14 +93,14 @@ class RankerL1:
         uniq_q = set(query_terms)
         return float(len(uniq_q.intersection(terms_in_doc.keys())))
 
-    def _feature_tf_sum(self, query_terms: List[str], doc_id: str) -> float:
+    def _feature_tf_idf_sum(self, query_terms: List[str], doc_id: str) -> float:
         terms_in_doc = self.direct_index.get_terms(doc_id)
         if not terms_in_doc:
             return 0.0
         tf_sum = 0
         for term in set(query_terms):
             positions = self.direct_index.get_positions(doc_id, term)
-            tf_sum += len(positions)
+            tf_sum += len(positions) * self.idf_cache.get(term, 0)
         return float(tf_sum)
 
     def _feature_proximity(self, query_terms: List[str], doc_id: str) -> float:
@@ -150,7 +150,7 @@ class RankerL1:
     def _score(self, query_terms: List[str], doc_id: str) -> float:
         """Линейная модель: score = w · f."""
         features = []
-        for feature in self.features:
+        for feature_name, feature in self.features.items():
             features.append(feature(query_terms, doc_id))
         
         features.append(1) # bias в конце
@@ -158,6 +158,6 @@ class RankerL1:
     
     def _get_features(self, query_terms: List[str], doc_id: str):
         features = []
-        for feature in self.features:
+        for feature_name, feature in self.features.items():
             features.append(feature(query_terms, doc_id))
         return features

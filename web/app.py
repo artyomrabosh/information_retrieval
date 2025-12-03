@@ -124,8 +124,9 @@ def initialize_sample_data():
 
 def learn_l1_ranker():
     try:
+        search_engine.ranker_l1._compute_idf_cache() # compute idf features after loading 
         qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
-        n_training_sample = 5000
+        n_training_sample = 2500
 
         
         print(f"Загружено {len(qrels)} запросов для обучения")
@@ -153,7 +154,7 @@ def learn_l1_ranker():
             try:
                 candidates = search_engine.get_candidates_and_features(query_text)
                 true_docs = search_engine.ranker_l1.get_features(query_text, [ms_marco_id_to_local_id_mapping[relevant_doc_id]])
-            except:
+            except Exception:
                 print("Bad query:", query_text)
                 continue
             candidates = candidates + true_docs
@@ -186,9 +187,9 @@ def learn_l1_ranker():
         )
         
         model = LogisticRegression(
-            max_iter=1000,  # Увеличиваем итерации для сходимости
+            max_iter=1000,
             random_state=42,
-            class_weight='balanced'  # Балансировка классов
+            class_weight='balanced'
         )
         
         print("Обучаем логистическую регрессию...")
@@ -200,6 +201,7 @@ def learn_l1_ranker():
             print(f"Признак {i}: {weight:.6f}")
         
         print(f"Свободный член (intercept): {model.intercept_[0]:.6f}")
+        print(classification_report(y_pred, y_test))
         
         # Сохраняем веса модели в файл
         model_info = {
