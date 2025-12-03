@@ -10,4 +10,10 @@ dependencies = [
     "ir-datasets>=0.5.11",
     "pandas>=2.3.3",
     "python-dotenv==1.0.0",
+    "scikit-learn>=1.6.1",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.31.0",
 ]
