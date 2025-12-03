@@ -20,6 +20,13 @@ class JsonDocument:
     title: str
     text: str
 
+@dataclass
+class MsMarcoDocument:
+    title: str
+    body: str
+    url: str
+    ms_marco_id: str
+
 def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_500k.csv") -> List[JsonDocument]:
     """Загрузка документов из JSON файла"""
     try:
@@ -41,9 +48,32 @@ def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_50
         print(f"Error loading documents: {e}")
         return []
 
+def load_ms_marco_documents(file_path: str = "./datasets/documents_train.csv") -> List[MsMarcoDocument]:
+    """Загрузка документов из MSMARCO"""
+    try:
+        data = pd.read_csv(file_path)[:10000]
+        documents = []
+        for title, body, url, doc_id  in zip(list(data.title), list(data.body), data.url, data.doc_id):
+            documents.append(MsMarcoDocument(
+                title=title,
+                body=body,
+                url=url,
+                ms_marco_id=doc_id,
+            ))
+        
+        print(f"Loaded {len(documents)} documents from {file_path}")
+        return documents
+    
+    except FileNotFoundError:
+        print(f"Error: File {file_path} not found")
+        return []
+    except Exception as e:
+        print(f"Error loading documents: {e}")
+        return []
+
 def initialize_documents():
     """Инициализация документов из JSON файла"""
-    json_documents = load_documents_from_json()
+    json_documents = load_ms_marco_documents()
     
     if not json_documents:
         # Fallback to sample data if JSON file is not available
@@ -54,7 +84,9 @@ def initialize_documents():
     for json_doc in tqdm(json_documents):
         doc = Document.create(
             title=json_doc.title,
-            content=json_doc.text,
+            content=json_doc.body,
+            url=json_doc.url,
+            ms_marco_id=json_doc.ms_marco_id,
             author="Unknown"  # Default author since JSON doesn't have this field
         )
         search_engine.add_document(doc)
@@ -90,8 +122,116 @@ def initialize_sample_data():
     for doc in sample_docs:
         search_engine.add_document(doc)
 
-# Инициализация документов при запуске
+def learn_l1_ranker():
+    try:
+        qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
+        n_training_sample = 5000
+        # qrels = qrels.sample(n_training_sample)
+
+        
+        print(f"Загружено {len(qrels)} запросов для обучения")
+
+        ms_marco_id_to_local_id_mapping = {}
+
+
+        for doc_id, doc in search_engine.inverted_index.documents.items():
+            ms_marco_id_to_local_id_mapping[doc.fields.get('ms_marco_id')] = doc_id
+
+        indices = []
+        for i in range(n_training_sample):
+            if qrels.doc_id[i] in ms_marco_id_to_local_id_mapping:
+                indices.append(i)
+
+        print(f"Отфильтровано {len(qrels) - len(indices)} ({len(indices)/len(qrels)}%) запросов")
+        qrels = qrels.iloc[indices]
+        
+        X = []
+        y = []        
+
+        for _, row in tqdm(qrels.iterrows(), total=len(qrels), desc="Настреливаем поиск за фичами и кандидатами"):
+            query_text = row['text']
+            relevant_doc_id = row['doc_id']
+            try:
+                candidates = search_engine.get_candidates_and_features(query_text)
+                true_docs = search_engine.ranker_l1.get_features(query_text, [ms_marco_id_to_local_id_mapping[relevant_doc_id]])
+            except:
+                print("Bad query:", query_text)
+                continue
+            candidates = candidates + true_docs
+
+            if not candidates:
+                continue
+                
+            for doc_id, features in candidates:
+
+                ms_marco_id = search_engine.inverted_index.documents.get(doc_id).fields.get('ms_marco_id', 'No title')
+                label = 1 if ms_marco_id == relevant_doc_id else 0
+                
+                X.append(features)
+                y.append(label)
+                
+        print(f"Собрано {len(X)} примеров для обучения")
+        print(f"Распределение классов: {sum(y)} положительных, {len(y)-sum(y)} отрицательных")
+        
+        try:
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import classification_report, accuracy_score
+            
+            import numpy as np
+            X_np = np.array(X)
+            y_np = np.array(y)
+            
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_np, y_np, test_size=0.2, random_state=42, stratify=y_np
+            )
+            
+            model = LogisticRegression(
+                max_iter=1000,  # Увеличиваем итерации для сходимости
+                random_state=42,
+                class_weight='balanced'  # Балансировка классов
+            )
+            
+            print("Обучаем логистическую регрессию...")
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            
+            print("\n=== Веса модели ===")
+            for i, weight in enumerate(model.coef_[0]):
+                print(f"Признак {i}: {weight:.6f}")
+            
+            print(f"Свободный член (intercept): {model.intercept_[0]:.6f}")
+            
+            # Сохраняем веса модели в файл
+            model_info = {
+                'weights': model.coef_[0].tolist(),
+                'intercept': model.intercept_[0].item(),
+                'accuracy': accuracy_score(y_test, y_pred)
+            }
+            search_engine.ranker_l1.weights = model.coef_[0].tolist() + [model.intercept_[0].item()]
+            import json
+            with open('l1_ranker_weights.json', 'w') as f:
+                json.dump(model_info, f, indent=2)
+            
+            print("\nВеса модели сохранены в файл 'l1_ranker_weights.json'")
+            return model
+            
+        except ImportError as e:
+            print(f"Ошибка импорта библиотек: {e}")
+            print("Установите scikit-learn: pip install scikit-learn")
+            return None
+            
+    except Exception as e:
+        print(f"Ошибка при обучении L1 ранкера: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+
 initialize_documents()
+learn_l1_ranker()
 
 @app.route('/')
 def index():

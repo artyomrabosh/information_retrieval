@@ -535,6 +535,11 @@ class SearchEngine:
         candidates = self.boolean_search(query=query)
         ranked_candidates = self.ranked_search_l1(query=query, candidates=candidates)
         return ranked_candidates
+    
+    def get_candidates_and_features(self, query: str):
+        candidates = self.boolean_search(query=query)[:100] # Чтобы слишком много не тянуть
+        return self.ranker_l1.get_features(query, candidates)
+
 
     def get_available_fields(self) -> Set[str]:
         """Получение списка доступных полей"""
