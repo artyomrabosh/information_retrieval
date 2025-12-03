@@ -51,7 +51,7 @@ def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_50
 def load_ms_marco_documents(file_path: str = "./datasets/documents_train.csv") -> List[MsMarcoDocument]:
     """Загрузка документов из MSMARCO"""
     try:
-        data = pd.read_csv(file_path)[:10000]
+        data = pd.read_csv(file_path)[:100000]
         documents = []
         for title, body, url, doc_id  in zip(list(data.title), list(data.body), data.url, data.doc_id):
             documents.append(MsMarcoDocument(
@@ -126,7 +126,6 @@ def learn_l1_ranker():
     try:
         qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
         n_training_sample = 5000
-        # qrels = qrels.sample(n_training_sample)
 
         
         print(f"Загружено {len(qrels)} запросов для обучения")
@@ -173,59 +172,50 @@ def learn_l1_ranker():
         print(f"Собрано {len(X)} примеров для обучения")
         print(f"Распределение классов: {sum(y)} положительных, {len(y)-sum(y)} отрицательных")
         
-        try:
-            from sklearn.linear_model import LogisticRegression
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.model_selection import train_test_split
-            from sklearn.metrics import classification_report, accuracy_score
-            
-            import numpy as np
-            X_np = np.array(X)
-            y_np = np.array(y)
-            
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_np, y_np, test_size=0.2, random_state=42, stratify=y_np
-            )
-            
-            model = LogisticRegression(
-                max_iter=1000,  # Увеличиваем итерации для сходимости
-                random_state=42,
-                class_weight='balanced'  # Балансировка классов
-            )
-            
-            print("Обучаем логистическую регрессию...")
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            
-            print("\n=== Веса модели ===")
-            for i, weight in enumerate(model.coef_[0]):
-                print(f"Признак {i}: {weight:.6f}")
-            
-            print(f"Свободный член (intercept): {model.intercept_[0]:.6f}")
-            
-            # Сохраняем веса модели в файл
-            model_info = {
-                'weights': model.coef_[0].tolist(),
-                'intercept': model.intercept_[0].item(),
-                'accuracy': accuracy_score(y_test, y_pred)
-            }
-            search_engine.ranker_l1.weights = model.coef_[0].tolist() + [model.intercept_[0].item()]
-            import json
-            with open('l1_ranker_weights.json', 'w') as f:
-                json.dump(model_info, f, indent=2)
-            
-            print("\nВеса модели сохранены в файл 'l1_ranker_weights.json'")
-            return model
-            
-        except ImportError as e:
-            print(f"Ошибка импорта библиотек: {e}")
-            print("Установите scikit-learn: pip install scikit-learn")
-            return None
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import classification_report, accuracy_score
+        
+        import numpy as np
+        X_np = np.array(X)
+        y_np = np.array(y)
+        
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_np, y_np, test_size=0.2, random_state=42, stratify=y_np
+        )
+        
+        model = LogisticRegression(
+            max_iter=1000,  # Увеличиваем итерации для сходимости
+            random_state=42,
+            class_weight='balanced'  # Балансировка классов
+        )
+        
+        print("Обучаем логистическую регрессию...")
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        
+        print("\n=== Веса модели ===")
+        for i, weight in enumerate(model.coef_[0]):
+            print(f"Признак {i}: {weight:.6f}")
+        
+        print(f"Свободный член (intercept): {model.intercept_[0]:.6f}")
+        
+        # Сохраняем веса модели в файл
+        model_info = {
+            'weights': model.coef_[0].tolist(),
+            'intercept': model.intercept_[0].item(),
+            'accuracy': accuracy_score(y_test, y_pred)
+        }
+        search_engine.ranker_l1.weights = model.coef_[0].tolist() + [model.intercept_[0].item()]
+        import json
+        with open('l1_ranker_weights.json', 'w') as f:
+            json.dump(model_info, f, indent=2)
+        
+        print("\nВеса модели сохранены в файл 'l1_ranker_weights.json'")
+        return model
             
     except Exception as e:
-        print(f"Ошибка при обучении L1 ранкера: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
 

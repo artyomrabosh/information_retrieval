@@ -379,8 +379,6 @@ class CompressedInvertedIndex(InvertedIndex):
         if not self._pending_docs:
             return
 
-        start_time = time.time()
-
         doc_updates = defaultdict(lambda: defaultdict(list))
         pos_updates = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
 
@@ -403,9 +401,6 @@ class CompressedInvertedIndex(InvertedIndex):
 
 
         self._pending_docs.clear()
-
-        processing_time = time.time() - start_time
-        # print(f"Processed batch of {len(doc_updates)} documents in {processing_time:.3f}s")
 
     def _update_posting_list_batch(self, token: str, field: str, new_ids: List[int]):
         """Батч-обновление posting list"""
