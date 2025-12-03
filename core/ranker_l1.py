@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Tuple, Set
 from core.tokenizer import Tokenizer
+import math
 
 SERVICE_TOKENS = set(["OR", "AND", "NEAR", "ADJ", "NOT"])
 
@@ -120,15 +121,24 @@ class RankerL1:
         avg_dist = sum(dists) / len(dists)
         # преобразуем расстояние в «близость» (меньшее расстояние -> больше значение)
         return 1.0 / (1.0 + avg_dist)
+    
+    def _feature_log_doc_len(self, query_terms: List[str], doc_id: str) -> float:
+        doc_len = self.direct_index.get_document_length(doc_id)
+        if doc_len == 0:
+            return 0.0
+        # нормируем длину документа через лог, чтобы не заваливать длинные документы
+        return math.log(1.0 + doc_len) / (len(query_terms) + 1e-6)
 
     def _score(self, query_terms: List[str], doc_id: str) -> float:
         """Линейная модель: score = w · f."""
         f_overlap = self._feature_overlap(query_terms, doc_id)
         f_tf_sum = self._feature_tf_sum(query_terms, doc_id)
         f_prox = self._feature_proximity(query_terms, doc_id)
+        f_len = self._feature_log_doc_len(query_terms, doc_id)
 
         return (
             self.w_overlap * f_overlap
             + self.w_tf_sum * f_tf_sum
             + self.w_proximity * f_prox
+            + self.w_len_norm * f_len
         )
