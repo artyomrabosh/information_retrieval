@@ -51,7 +51,7 @@ def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_50
 def load_ms_marco_documents(file_path: str = "./datasets/documents_train.csv") -> List[MsMarcoDocument]:
     """Загрузка документов из MSMARCO"""
     try:
-        data = pd.read_csv(file_path)[:100000]
+        data = pd.read_csv(file_path)[:15000]
         documents = []
         for title, body, url, doc_id  in zip(list(data.title), list(data.body), data.url, data.doc_id):
             documents.append(MsMarcoDocument(
@@ -76,7 +76,6 @@ def initialize_documents():
     json_documents = load_ms_marco_documents()
     
     if not json_documents:
-        # Fallback to sample data if JSON file is not available
         print("No documents found in JSON file, using sample data")
         initialize_sample_data()
         return
@@ -87,8 +86,9 @@ def initialize_documents():
             content=json_doc.body,
             url=json_doc.url,
             ms_marco_id=json_doc.ms_marco_id,
-            author="Unknown"  # Default author since JSON doesn't have this field
+            author="Unknown"
         )
+        doc.id = json_doc.ms_marco_id # dont use random ids for vector search
         search_engine.add_document(doc)
     search_engine.inverted_index.flush()
     
@@ -126,7 +126,7 @@ def learn_l1_ranker():
     try:
         search_engine.ranker_l1._compute_idf_cache() # compute idf features after loading 
         qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
-        n_training_sample = 2500
+        n_training_sample = 1000
 
         
         print(f"Загружено {len(qrels)} запросов для обучения")
@@ -242,7 +242,7 @@ def search():
         doc_ids = [r['id'] for r in documents]
         results = []
         for doc_id in doc_ids:
-            doc = search_engine.inverted_index.documents.get(doc_id)
+            doc = search_engine.inverted_index.documents.get(doc_id, False)
             if doc:
                 content = doc.fields.get('content', '')
                 preview_length = 200  # Количество символов для предпросмотра
