@@ -21,12 +21,6 @@ class RankerL1:
         self.inverted_index = inverted_index
         self.direct_index = direct_index
         self.tokenizer = Tokenizer()
-
-        self.w_overlap = 1.0
-        self.w_tf_sum = 0.2
-        self.w_proximity = 2.0
-        self.w_len_norm = 0.1
-
         self.features = {"overlap": self._feature_overlap, 
                          "tf_sum": self._feature_tf_idf_sum, 
                          "prox": self._feature_proximity,

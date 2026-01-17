@@ -11,6 +11,8 @@ from core.tokenizer import Tokenizer
 from core.direct_index import DirectIndex
 from core.position_storage import SimplePositionStorage
 from core.ranker_l1 import RankerL1
+from core.ranker_l2 import RankerL2
+from core.vector_index import VectorIndex
 
 class InvertedIndex:
     def __init__(self):
@@ -503,7 +505,9 @@ class SearchEngine:
         else:
             self.inverted_index = InvertedIndex()
         self.direct_index = DirectIndex()
+        self.vector_index = VectorIndex()
         self.ranker_l1 = RankerL1(self.inverted_index, self.direct_index)
+        self.ranker_l2 = RankerL2(self.ranker_l1, vector_index=self.vector_index)
 
     def add_document(self, doc: Document):
         """Добавление документа в объединенный индекс и прямой индекс"""
@@ -516,7 +520,7 @@ class SearchEngine:
         parser = BooleanQueryParser(self.inverted_index)
         return parser.parse(query)
 
-    def ranked_search_l1(self, query: str, candidates: Set[str]):
+    def ranked_text_search_l1(self, query: str, candidates: Set[str]):
         """Ранжированный поиск с использованием линейного L1-ранжирования.
 
         Возвращает список словарей вида {'id': doc_id, 'score': score}.
@@ -526,15 +530,39 @@ class SearchEngine:
             results.append({'id': doc_id, 'score': score})
         return results
     
+    def vector_search(self, query: str):
+        return self.vector_index.search(query, top_k=100)
+    
     def search(self, query: str):
         candidates = self.boolean_search(query=query)
-        ranked_candidates = self.ranked_search_l1(query=query, candidates=candidates)
-        return ranked_candidates
+        text_candidates_l1 = self.ranked_text_search_l1(query=query, candidates=candidates)
+        vector_candidates = self.vector_search(query=query)
+        doc_ids = self.rank_l2(query=query, 
+                               text_candidates=text_candidates_l1, 
+                               vector_candidates=vector_candidates)
+        self.vector_index.clear_cache()
+        return doc_ids
+    
+    def rank_l2(self, query, vector_candidates, text_candidates):
+        return self.ranker_l2.rank(query, text_candidates, vector_candidates)        
     
     def get_candidates_and_features(self, query: str):
-        candidates = self.boolean_search(query=query)[:100] # Чтобы слишком много не тянуть
-        return self.ranker_l1.get_features(query, candidates)
+        text_candidates = self.boolean_search(query=query)[:10] # Чтобы слишком много не тянуть
+        return self.ranker_l1.get_features(query, text_candidates)
 
+    def get_candidates_and_features_l2(self, query: str):
+        text_candidates = self.boolean_search(query=query)
+        vector_candidates = self.vector_search(query=query)
+        text_top = text_candidates[:10]
+        vector_top = [doc_id for doc_id, _ in vector_candidates[:10]]
+        
+        all_candidates = set()
+        
+        all_candidates.update(text_top)
+        all_candidates.update(vector_top)
+        all_candidates = list(all_candidates)
+
+        return all_candidates, self.ranker_l2.get_features(query, all_candidates)
 
     def get_available_fields(self) -> Set[str]:
         """Получение списка доступных полей"""

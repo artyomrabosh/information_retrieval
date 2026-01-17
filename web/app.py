@@ -122,10 +122,42 @@ def initialize_sample_data():
     for doc in sample_docs:
         search_engine.add_document(doc)
 
-def learn_l1_ranker():
+def fit_l1_ranker():
     try:
         search_engine.ranker_l1._compute_idf_cache() # compute idf features after loading 
+        model_path = "l1_ranker_weights.json"
+        if os.path.exists(model_path): # Загрузка предобученной модели
+            print(f"Загружаем сохраненную модель из {model_path}")
+            
+            with open(model_path, 'r') as f:
+                model_info = json.load(f)
+            
+            # Создаем модель и устанавливаем загруженные веса
+            model = LogisticRegression(
+                max_iter=1000,
+                random_state=42,
+                class_weight='balanced'
+            )
+            
+            # Для установки весов нужно сначала обучить модель на фиктивных данных
+            # или использовать hack с установкой атрибутов
+            # Создаем фиктивные данные для инициализации модели
+            dummy_X = np.zeros((2, len(model_info['weights'])))
+            dummy_y = np.array([0, 1])
+            model.fit(dummy_X, dummy_y)
+            
+            # Устанавливаем загруженные веса
+            model.coef_ = np.array([model_info['weights']])
+            model.intercept_ = np.array([model_info['intercept']])
+            
+            # Устанавливаем веса в ранкер
+            search_engine.ranker_l1.weights = model_info['weights'] + [model_info['intercept']]
+            
+            print(f"Модель успешно загружена (точность: {model_info.get('accuracy', 'неизвестно')})")
+            return
+
         qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
+        
         n_training_sample = 1000
 
         
@@ -220,10 +252,76 @@ def learn_l1_ranker():
     except Exception as e:
         return None
 
+def fit_l2_ranker():
+    if search_engine.ranker_l2.is_preloaded:
+        print(f"Загружаем сохраненную L2 модель")
+        return
+    
+    qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
+    
+    n_training_sample = 1000
+
+
+    ms_marco_id_to_local_id_mapping = {}
+
+    for doc_id, doc in search_engine.inverted_index.documents.items():
+        ms_marco_id_to_local_id_mapping[doc.fields.get('ms_marco_id')] = doc_id
+
+    indices = []
+    for i in range(n_training_sample):
+        if qrels.doc_id[i] in ms_marco_id_to_local_id_mapping:
+            indices.append(i)
+
+    print(f"Отфильтровано {len(qrels) - len(indices)} ({len(indices)/len(qrels)}%) запросов")
+    qrels = qrels.iloc[indices]
+    
+    X = []
+    y = []        
+
+    for _, row in tqdm(qrels.iterrows(), total=len(qrels), desc="Настреливаем поиск за фичами и кандидатами"):
+        query_text = row['text']
+        relevant_doc_id = row['doc_id']
+        try:
+            neg_candidate_ids, (features_negs, _) = search_engine.get_candidates_and_features_l2(query_text)
+            pos_candidate_ids, (features_pos, _) = [relevant_doc_id], search_engine.ranker_l2.get_features(query_text, [ms_marco_id_to_local_id_mapping[relevant_doc_id]])
+        except Exception:
+            print("Bad query:", query_text)
+            continue
+        candidates = zip(neg_candidate_ids + pos_candidate_ids, list(features_negs) + list(features_pos))
+
+        if not candidates:
+            continue
+            
+        for doc_id, features in candidates:
+            label = 1 if doc_id == relevant_doc_id else 0
+            X.append(features)
+            y.append(label)
+            
+    print(f"Собрано {len(X)} примеров для обучения")
+    print(f"Распределение классов: {sum(y)} положительных, {len(y)-sum(y)} отрицательных")
+    
+    from sklearn.model_selection import train_test_split
+    
+    import numpy as np
+    X_np = np.array(X)
+    y_np = np.array(y)
+    
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_np, y_np, test_size=0.2, random_state=42, stratify=y_np
+    )
+    
+    search_engine.ranker_l2.train(X_train=X_train, 
+                                y_train=y_train, 
+                                X_val=X_val, 
+                                y_val=y_val)
+    
+    search_engine.ranker_l2.save_model("./models/L2_ranker/model.pkl")
+        
 
 
 initialize_documents()
-learn_l1_ranker()
+fit_l1_ranker()
+fit_l2_ranker()
 
 @app.route('/')
 def index():
@@ -238,8 +336,7 @@ def search():
         return render_template('results.html', query=query, results=[])
 
     try:
-        documents = search_engine.search(query)
-        doc_ids = [r['id'] for r in documents]
+        doc_ids = search_engine.search(query)
         results = []
         for doc_id in doc_ids:
             doc = search_engine.inverted_index.documents.get(doc_id, False)
