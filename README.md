@@ -1,7 +1,20 @@
 # Information retrieval
 
+A hybrid search engine combining text and vector search with two-stage ranking (L1 + L2). 
+
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Веб-интерфейс │◄──►│   Поисковый     │◄──►│     Индексы     │
+│    (Flask)      │    │     движок      │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                              ▼
+┌─────────────────┐    ┌─────────────────┐
+│    Ранжирование │    │     Модели      │
+│    (L1 + L2)    │    │     ML/CatBoost │
+└─────────────────┘    └─────────────────┘
+
 Prerequisites
-- Python 3.8+
+- Python 3.12+
 - uv
 
 Installation:
@@ -14,7 +27,13 @@ uv sync
 
 Running:
 1) Download dataset from notebooks/load_dataset.ipynb or load your own
-2) Run app.py
+2) Precompute embeddings using notebooks/vector_search.ipynb
+3) Train and save FAISS index with embeddings
+
+```bash
+uv run scipts/train_faiss_index.py
+```
+4) Run app.py
 ```bash
 uv run web/app.py
 ```
