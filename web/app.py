@@ -51,7 +51,7 @@ def load_documents_from_json(file_path: str = "./datasets/wikipedia_ru_sample_50
 def load_ms_marco_documents(file_path: str = "./datasets/documents_train.csv") -> List[MsMarcoDocument]:
     """Загрузка документов из MSMARCO"""
     try:
-        data = pd.read_csv(file_path)[:15000]
+        data = pd.read_csv(file_path)[:50000]
         documents = []
         for title, body, url, doc_id  in zip(list(data.title), list(data.body), data.url, data.doc_id):
             documents.append(MsMarcoDocument(
@@ -315,13 +315,81 @@ def fit_l2_ranker():
                                 X_val=X_val, 
                                 y_val=y_val)
     
-    search_engine.ranker_l2.save_model("./models/L2_ranker/model.pkl")
-        
+    search_engine.ranker_l2.save_model("./models/L2_ranker")
+
+def nastrel_test_set():
+    qrels = pd.read_csv("datasets/queries_train.csv", index_col=0)
+    
+    n_test = 1000
+
+
+    ms_marco_id_to_local_id_mapping = {}
+
+    for doc_id, doc in search_engine.inverted_index.documents.items():
+        ms_marco_id_to_local_id_mapping[doc.fields.get('ms_marco_id')] = doc_id
+
+    indices = []
+    for i in range(n_test):
+        if qrels.doc_id[i + 1000] in ms_marco_id_to_local_id_mapping:
+            indices.append(i)
+
+    print(f"Отфильтровано {len(qrels) - len(indices)} ({len(indices)/len(qrels)}%) запросов")
+    qrels = qrels.iloc[indices]
+    
+    all_results = []
+
+    for _, row in tqdm(qrels.iterrows(), total=len(qrels), desc="Настреливаем поиск за выдачей"):
+        query_text = row['text']
+        relevant_doc_id = row['doc_id']
+
+        try:
+            ranked_text_candidates = search_engine.search(query_text, text_only=True)
+            ranked_hybrid_candidates = search_engine.search(query_text)
+            for rank, candidate in enumerate(ranked_text_candidates, 1):
+                candidate_data = {
+                    'query_text': query_text,
+                    'search_type': "text",
+                    'rank': rank,
+                    'doc_id': candidate.get('id'),
+                    'score': candidate.get('score', 0.0),
+                    'score_text_only': candidate.get('score_text_only', 0.0),
+                    'is_text': candidate.get('is_text', False),
+                    'is_vector': candidate.get('is_vector', False),
+                    'relevant': 1 if candidate.get('id') == relevant_doc_id else 0,
+                }
+                all_results.append(candidate_data)
+            for rank, candidate in enumerate(ranked_hybrid_candidates, 1):
+                candidate_data = {
+                    'query_text': query_text,
+                    'search_type': "hybrid",
+                    'rank': rank,
+                    'doc_id': candidate.get('id'),
+                    'score': candidate.get('score', 0.0),
+                    'score_text_only': candidate.get('score_text_only', 0.0),
+                    'is_text': candidate.get('is_text', False),
+                    'is_vector': candidate.get('is_vector', False),
+                    'relevant': 1 if candidate.get('id') == relevant_doc_id else 0,
+                }
+                all_results.append(candidate_data)
+        except Exception:
+            print("Bad query:", query_text)
+            # raise Exception
+            continue
+    df_results = pd.DataFrame(all_results)
+    df_results.to_parquet("search_results.parquet")
+    print(f"Результаты сохранены")
 
 
 initialize_documents()
 fit_l1_ranker()
 fit_l2_ranker()
+nastrel_test_set()
+
+
+        
+
+
+    
 
 @app.route('/')
 def index():
@@ -336,7 +404,8 @@ def search():
         return render_template('results.html', query=query, results=[])
 
     try:
-        doc_ids = search_engine.search(query)
+        documents = search_engine.search(query)
+        doc_ids = [x["id"] for x in documents]
         results = []
         for doc_id in doc_ids:
             doc = search_engine.inverted_index.documents.get(doc_id, False)

@@ -533,15 +533,21 @@ class SearchEngine:
     def vector_search(self, query: str):
         return self.vector_index.search(query, top_k=100)
     
-    def search(self, query: str):
+    def search(self, query: str, text_only=False):
         candidates = self.boolean_search(query=query)
         text_candidates_l1 = self.ranked_text_search_l1(query=query, candidates=candidates)
-        vector_candidates = self.vector_search(query=query)
-        doc_ids = self.rank_l2(query=query, 
+        if text_only:
+            vector_candidates = []
+        else:
+            vector_candidates = self.vector_search(query=query)
+        documents = self.rank_l2(query=query, 
                                text_candidates=text_candidates_l1, 
                                vector_candidates=vector_candidates)
         self.vector_index.clear_cache()
-        return doc_ids
+        for doc in documents:
+            doc["is_text"] = doc["id"] in text_candidates_l1
+            doc["is_vector"] = doc["id"] in vector_candidates
+        return documents
     
     def rank_l2(self, query, vector_candidates, text_candidates):
         return self.ranker_l2.rank(query, text_candidates, vector_candidates)        

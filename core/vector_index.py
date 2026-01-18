@@ -180,10 +180,7 @@ class VectorIndex:
         """
         # Проверяем, есть ли запрос в кэше
         if query_text not in self.query_cache:
-            raise ValueError(
-                f"Query '{query_text}' not in cache. "
-                f"Call search() first or set use_cache=True in encode_query()."
-            )
+            self.encode_query(query_text)
         
         # Проверяем, есть ли результаты в кэше MaxP
         if query_text in self.maxp_cache:
@@ -208,7 +205,7 @@ class VectorIndex:
                 results[doc_id] = 0.0
                 continue
             
-            passage_embeddings = self._get_passage_embeddings(passage_indices)
+            passage_embeddings = self.embeddings[passage_indices]
             query_flat = query_embedding.flatten()
             dots = np.dot(passage_embeddings, query_flat)
             
