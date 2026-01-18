@@ -19,15 +19,22 @@ class VectorIndex:
       * поиск/скоры только по подмножеству doc_ids (ранкпул)
     """
 
-    def __init__(self, index_dir: str = "./datasets/vector_search_data", use_memmap: bool = True):
+    def __init__(self, index_dir: str = "./datasets/vector_search_data", index_type:str = "ivf", use_memmap: bool = True):
         self.use_memmap = use_memmap
         print("Loading FAISS index...")
+        match index_type:
+            case "flat":
+                index_type = "faiss_index"
+            case "ivf":
+                index_type = "faiss_index_ivf"
+            case "ivf_pq":
+                index_type = "faiss_index_pq"
         self.index = faiss.read_index(f"{index_dir}/faiss_index.bin")
         print("Loading embedding model...")
         self.model = self._load_or_download_model()
         self.passages_df = pd.read_parquet(f"{index_dir}/passages.parquet")
         
-        print("Setting up embeddings storage...")
+        print("Setting up embeddings storage...") 
         self.embeddings = self._setup_embeddings_storage(index_dir)
         
         print("Building mappings...")
@@ -63,7 +70,7 @@ class VectorIndex:
             
             print(f"Saving model to: {self.local_path}")
             model.save(self.local_path)
-            return
+            return model
     
     def _setup_embeddings_storage(self, index_dir: str) -> np.ndarray:
         """Настраивает хранение эмбеддингов (memmap или загрузка в память)."""
@@ -76,8 +83,8 @@ class VectorIndex:
             print(f"Creating memmap for embeddings from {embeddings_path}")
             
             with open(embeddings_path, 'rb') as f:
-                version = np.lib.format.read_magic(f)
-                shape, fortran_order, dtype = np.lib.format._read_array_header(f, version)
+                shape = (len(self.passages_df), 384)
+                dtype = np.dtype('float32')
             
             embeddings = np.memmap(
                 embeddings_path,
@@ -138,9 +145,8 @@ class VectorIndex:
         """
         query_embedding = self.encode_query(query_text)
         
-        distances, indices = self.index.search(query_embedding.reshape(1, 384), top_k)
+        distances, indices = self.index.search(query_embedding.reshape(1, 384), top_k) # 10 pas doc_1 + 20 pas doc_2
         doc_scores = defaultdict(float)
-        
         for score, passage_idx in zip(distances[0], indices[0]):
             if passage_idx < 0:
                 continue
